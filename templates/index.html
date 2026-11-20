@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mural de Notas com Foto | Portfolio S3</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="container header-inner">
+      <div>
+        <p class="eyebrow">Projeto Cloud &amp; Storage</p>
+        <h1>Mural de Notas com Foto</h1>
+        <p class="subtitle">
+          Upload de imagens via <code>boto3</code> com URLs pré-assinadas, metadados relacionais e simulação local.
+        </p>
+      </div>
+      <aside class="infra-badges" aria-label="Status da arquitetura">
+        <span class="badge">
+          <strong>Storage:</strong> {{ storage_label }}
+        </span>
+        <span class="badge">
+          <strong>Bucket:</strong> <code>{{ bucket_name }}</code>
+        </span>
+        <span class="badge">
+          <strong>Banco:</strong> {{ db_label }}
+        </span>
+      </aside>
+    </div>
+  </header>
+
+  <main class="container page-layout">
+    {% if status_message %}
+      <div class="alert alert-success" role="status" aria-live="polite">
+        {{ status_message }}
+      </div>
+    {% endif %}
+
+    {% if error_message %}
+      <div class="alert alert-error" role="alert" aria-live="assertive">
+        {{ error_message }}
+      </div>
+    {% endif %}
+
+    <section class="compose-panel" aria-labelledby="compose-heading">
+      <h2 id="compose-heading">Nova nota com foto</h2>
+      <form
+        id="note-form"
+        action="/posts"
+        method="POST"
+        enctype="multipart/form-data"
+        aria-labelledby="compose-heading"
+        data-max-mb="{{ max_upload_mb }}"
+        novalidate
+      >
+        <div class="field-row">
+          <div class="field">
+            <label for="note-title">Título curto (opcional)</label>
+            <input
+              type="text"
+              id="note-title"
+              name="title"
+              maxlength="80"
+              value="{{ form_values.title }}"
+              placeholder="Ex.: Pôr do sol na praia"
+              enterkeyhint="next"
+            >
+          </div>
+
+          <div class="field">
+            <label for="note-author">Autor (opcional)</label>
+            <input
+              type="text"
+              id="note-author"
+              name="author"
+              maxlength="50"
+              autocomplete="name"
+              value="{{ form_values.author }}"
+              placeholder="Seu nome"
+              enterkeyhint="next"
+            >
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="note-texto">
+            Mensagem da nota <span aria-hidden="true">*</span>
+          </label>
+          <textarea
+            id="note-texto"
+            name="texto"
+            rows="3"
+            maxlength="500"
+            required
+            aria-describedby="texto-help texto-error"
+            placeholder="Escreva uma lembrança, legenda ou recado para o mural..."
+          >{{ form_values.texto }}</textarea>
+          <span id="texto-help" class="hint">Obrigatório. Máximo de 500 caracteres.</span>
+          <span id="texto-error" class="field-error" aria-live="polite"></span>
+        </div>
+
+        <fieldset class="color-fieldset">
+          <legend>Cor do cartão</legend>
+          <div class="color-options">
+            {% for key, label in colors.items() %}
+              <div class="color-option" data-color="{{ key }}">
+                <input
+                  type="radio"
+                  id="color-{{ key }}"
+                  name="color"
+                  value="{{ key }}"
+                  {% if form_values.color == key %}checked{% endif %}
+                >
+                <label for="color-{{ key }}">{{ label }}</label>
+              </div>
+            {% endfor %}
+          </div>
+        </fieldset>
+
+        <div class="field">
+          <label for="note-foto">
+            Foto da nota <span aria-hidden="true">*</span>
+          </label>
+          <input
+            type="file"
+            id="note-foto"
+            name="foto"
+            accept="image/jpeg,image/png,image/webp,image/gif"
+            required
+            aria-describedby="foto-help foto-error"
+          >
+          <span id="foto-help" class="hint">
+            Formatos aceitos: JPG, PNG, WEBP ou GIF até {{ max_upload_mb }} MB.
+          </span>
+          <span id="foto-error" class="field-error" aria-live="polite"></span>
+
+          <div id="preview-wrapper" class="preview-wrapper" hidden>
+            <img
+              id="photo-preview"
+              src=""
+              alt="Pré-visualização da foto selecionada"
+              width="320"
+              height="240"
+            >
+            <p id="preview-meta" class="hint"></p>
+          </div>
+        </div>
+
+        <div class="form-actions">
+          <button type="submit" id="submit-btn" class="btn-primary">
+            Fixar nota no mural
+          </button>
+        </div>
+      </form>
+    </section>
+
+    <section class="board-section" aria-labelledby="board-heading">
+      <div class="board-toolbar">
+        <h2 id="board-heading">Mural ({{ cards|length }})</h2>
+
+        <search>
+          <form action="/" method="GET" class="filter-form" aria-label="Filtrar notas">
+            <div class="filter-field">
+              <label for="search-q">Buscar</label>
+              <input
+                type="search"
+                id="search-q"
+                name="q"
+                value="{{ query }}"
+                placeholder="Texto, título ou autor"
+                autocorrect="off"
+                autocapitalize="none"
+                spellcheck="false"
+              >
+            </div>
+
+            <div class="filter-field">
+              <label for="filter-color">Cor</label>
+              <select id="filter-color" name="cor">
+                <option value="">Todas as cores</option>
+                {% for key, label in colors.items() %}
+                  <option value="{{ key }}" {% if selected_color == key %}selected{% endif %}>
+                    {{ label }}
+                  </option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <div class="filter-actions">
+              <button type="submit" class="btn-secondary">Filtrar</button>
+              {% if query or selected_color %}
+                <a href="/" class="btn-link">Limpar</a>
+              {% endif %}
+            </div>
+          </form>
+        </search>
+      </div>
+
+      {% if cards %}
+        <div class="notes-grid">
+          {% for card in cards %}
+            <article class="note-card" data-color="{{ card.color }}">
+              <figure class="note-photo">
+                <img
+                  src="{{ card.image_url }}"
+                  alt="Foto da nota {{ card.title or ('#' ~ card.id) }}"
+                  width="400"
+                  height="300"
+                  {% if loop.index > 2 %}loading="lazy"{% endif %}
+                >
+                <figcaption class="note-key">
+                  <span class="sr-only">Chave S3: </span>
+                  <code>{{ card.s3_key }}</code>
+                </figcaption>
+              </figure>
+
+              <div class="note-body">
+                <h3>{{ card.title if card.title else "Nota #" ~ card.id }}</h3>
+                <p class="note-text">{{ card.texto }}</p>
+              </div>
+
+              <footer class="note-footer">
+                <div class="note-meta">
+                  <span class="note-author">{{ card.author }}</span>
+                  {% if card.created_at %}
+                    <time class="note-date">{{ card.created_at }}</time>
+                  {% endif %}
+                </div>
+
+                <form action="/posts/{{ card.id }}/delete" method="POST" class="inline-delete-form">
+                  <button
+                    type="button"
+                    class="btn-delete js-delete-trigger"
+                    data-delete-action="/posts/{{ card.id }}/delete"
+                    data-note-label="{{ card.title if card.title else 'Nota #' ~ card.id }}"
+                  >
+                    Remover
+                  </button>
+                  <noscript>
+                    <button type="submit" class="btn-delete">Confirmar remoção</button>
+                  </noscript>
+                </form>
+              </footer>
+            </article>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="empty-state">
+          <p>Nenhuma nota encontrada no mural ainda.</p>
+          <p class="hint">Envie a primeira foto acima para testar o fluxo de upload e URL pré-assinada.</p>
+        </div>
+      {% endif %}
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container">
+      <p>
+        Arquitetura preparada para Amazon EC2 + RDS PostgreSQL + S3 (ou simulação local com LocalStack / SQLite).
+        <a href="/health">Healthcheck JSON</a> · <a href="/api/posts">API JSON</a>
+      </p>
+    </div>
+  </footer>
+
+  <dialog id="delete-dialog" aria-labelledby="delete-dialog-title" closedby="any">
+    <h3 id="delete-dialog-title">Remover nota do mural?</h3>
+    <p id="delete-dialog-desc">
+      Esta ação remove permanentemente a nota <strong id="delete-note-name"></strong> e exclui a imagem correspondente do armazenamento.
+    </p>
+    <div class="dialog-actions">
+      <form method="dialog">
+        <button value="cancel" class="btn-secondary" autofocus>Cancelar</button>
+      </form>
+      <form id="delete-confirm-form" method="POST" action="">
+        <button type="submit" class="btn-danger">Remover nota e foto</button>
+      </form>
+    </div>
+  </dialog>
+</body>
+</html>
